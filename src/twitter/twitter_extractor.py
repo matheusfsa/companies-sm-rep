@@ -2,19 +2,22 @@ import pandas as pd
 import requests
 import pandas as pd
 # For parsing the dates received from twitter in readable formats
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import pytz
 #To add wait time between requests
 import time
 import logging
+from config_logger import APP_NAME
 
-logger = logging.getLogger()
+logger = logging.getLogger(APP_NAME)
 class TwitterExtractor:
     
-    def __init__(self, database_con, companies_table, tweets_table, api_token):
+    def __init__(self, database_con, companies_table, tweets_table, api_token, append):
         self.__database_con = database_con
         self.__companies_table = companies_table
         self.__tweets_table = tweets_table
         self.__api_token = api_token
+        self.__append = append
         self.get_companies()
     
     def _add_companies(self, companies):
@@ -24,7 +27,7 @@ class TwitterExtractor:
         self.df_companies = pd.DataFrame(data=companies)
         self.df_companies.to_sql(name=self.__companies_table, 
                         con=self.__database_con,
-                        if_exists='append')
+                        if_exists='append' if self.__append else 'replace')
 
     def get_companies(self):
         '''
@@ -34,7 +37,22 @@ class TwitterExtractor:
         self.df_companies = self.df_companies.set_index('id')
         logger.info('Successfully loaded company table!')
         return self.df_companies
-    
+
+    def add_company(self, id, name, query):
+        if id not in self.df_companies.index:
+
+            df_company = pd.DataFrame(data={'id':[id], 'name':[name], 'query':[query]})
+            df_company = df_company.set_index('id')
+            df_company.to_sql(name=self.__companies_table, 
+                        con=self.__database_con,
+                        if_exists='append')
+            logger.info(f'The company {name} has been added to the database.')                        
+        else:
+            logger.warning('Already a company with the same id, carrying the company not added.')
+        self.get_companies()
+
+        
+
     def _create_headers(self):
         headers = {"Authorization": "Bearer {}".format(self.__api_token)}
         return headers
@@ -65,7 +83,9 @@ class TwitterExtractor:
     def _extract_tweets(self, company, max_tweets=10000, results_by_page=50):
         today = date.today()
         today = datetime.combine(date.today(), datetime.min.time())
-        start_time = today.strftime("%Y-%m-%dT%H:%M:%S.52-03:00")
+        delta = timedelta(hours=24)
+        start_time = (datetime.now() - timedelta(hours=24)).replace(tzinfo=pytz.timezone('America/Sao_Paulo'))
+        start_time =start_time.isoformat()
         headers = self._create_headers()
         keyword = f"{company['query']} lang:pt"
 
@@ -106,19 +126,32 @@ class TwitterExtractor:
             page += 1
             if next_token is None:
                 search = False
+        print()
+        
         return df_tweets
     
     def extract_last_tweets(self,  max_tweets_search=10000, results_by_page=100):
         new_tweets = pd.DataFrame()
-        for i, company in self.df_companies.iterrows():
+
+        for i, (c_id, company) in enumerate(self.df_companies.iterrows()):
+            logger.info(f"[{i+1}/{self.df_companies.shape[0]}] Extracting tweets about company {company['name']}...")
             new_tweets = new_tweets.append(self._extract_tweets(company, max_tweets=max_tweets_search, results_by_page=results_by_page), ignore_index=True)
             time.sleep(10)
+
         new_tweets = new_tweets[new_tweets.lang == 'pt']
+        new_tweets['created_at'] = pd.to_datetime(new_tweets['created_at'])
+        
+        
+        logger.info(f'Extraction of {new_tweets.shape[0]} tweets completed successfully!')
+
+        logger.info('Upload tweets to database...')
+        
         new_tweets.to_sql(name=self.__tweets_table, 
                         con=self.__database_con,
-                        if_exists='append')
-    
+                        if_exists='append' if self.__append else 'replace')
+        logger.info('Upload completed successfully!')
     def get_tweets(self):
+        logger.info('Load tweets from database...')
         self.df_tweets = pd.read_sql_table(self.__tweets_table, self.__database_con)
-        
+        logger.info(f'Load of {self.df_tweets.shape[0]} completed successfully!')
         return self.df_tweets

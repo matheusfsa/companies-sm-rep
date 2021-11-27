@@ -13,7 +13,7 @@ default_args = {
 
 with DAG(
    'twitter-dag',
-   schedule_interval=timedelta(minutes=1),
+   schedule_interval=timedelta(hours=24),
    catchup=False,
    default_args=default_args
    ) as dag:
