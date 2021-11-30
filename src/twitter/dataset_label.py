@@ -75,6 +75,7 @@ class LabelText():
 
     def quit(self):
         logger.info(f"Choice: {self.v.get()}")
+        
         new_sample = {'text':self.sample['text'], 'company':self.sample['company'], 'label':self.v.get()}
         self.df_sample = self.df_sample.append(new_sample, ignore_index=True)
         self.df_sample.to_csv('sample.csv', index=None)
@@ -126,4 +127,5 @@ if __name__ == "__main__":
     for i, (tweet_id, tweet) in enumerate(df_tweets.sample(args.n_samples).iterrows()):
         app(tweet)
         app.df_sample.to_csv('sample.csv', index=None)
+        logger.info(f"Number of samples: {app.df_sample.shape[0]}")
         
